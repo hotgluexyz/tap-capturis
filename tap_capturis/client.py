@@ -10,6 +10,7 @@ responses into plain Python dicts/lists.
 import logging
 import os
 import re
+import threading
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 from xml.sax.saxutils import escape
@@ -77,6 +78,13 @@ def element_to_obj(element: ET.Element) -> Any:
 class CapturisStream(Stream):
     """Base stream that talks to the Capturis BillingInfo SOAP endpoint."""
 
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        # getFile downloads run in parallel (ThreadPoolExecutor) and
+        # requests.Session is not guaranteed to be thread-safe, so each thread
+        # gets its own session via this thread-local store.
+        self._thread_local = threading.local()
+
     @property
     def api_url(self) -> str:
         """Return the SOAP endpoint URL (configurable)."""
@@ -95,20 +103,31 @@ class CapturisStream(Stream):
         """Return the request timeout limit in seconds."""
         return self.config.get("request_timeout", 300)
 
+    @staticmethod
+    def _build_session() -> requests.Session:
+        """Build a pooled requests session with basic transport retries."""
+        session = requests.Session()
+        adapter = HTTPAdapter(
+            pool_connections=10,
+            pool_maxsize=10,
+            max_retries=Retry(total=3, backoff_factor=0.3),
+        )
+        session.mount("https://", adapter)
+        session.mount("http://", adapter)
+        return session
+
     @property
     def requests_session(self) -> requests.Session:
-        """Lazily create a pooled requests session with basic transport retries."""
-        session = getattr(self, "_requests_session", None)
+        """Return a per-thread pooled requests session.
+
+        ``requests.Session`` is not guaranteed to be thread-safe, and getFile
+        attachment downloads run concurrently, so each thread gets its own
+        session (stored in a ``threading.local``) instead of sharing one.
+        """
+        session = getattr(self._thread_local, "session", None)
         if session is None:
-            session = requests.Session()
-            adapter = HTTPAdapter(
-                pool_connections=10,
-                pool_maxsize=10,
-                max_retries=Retry(total=3, backoff_factor=0.3),
-            )
-            session.mount("https://", adapter)
-            session.mount("http://", adapter)
-            self._requests_session = session
+            session = self._build_session()
+            self._thread_local.session = session
         return session
 
     @staticmethod
