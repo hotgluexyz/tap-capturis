@@ -1,0 +1,23 @@
+[tool.poetry]
+name = "tap-capturis"
+version = "0.1.0"
+description = "`tap-capturis` is a Singer tap for the Capturis (NISC) BillingInfo SOAP API, built with the Meltano SDK for Singer Taps."
+authors = ["hotglue"]
+license = "Apache 2.0"
+
+[tool.poetry.dependencies]
+python = ">=3.7.1,<3.11"
+requests = "^2.25.1"
+hotglue-singer-sdk = "^1.0.34"
+backoff = "^1.8.0"
+
+[tool.poetry.dev-dependencies]
+pytest = "^6.1.2"
+
+[build-system]
+requires = ["poetry-core==1.0.8"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+# CLI declaration
+tap-capturis = 'tap_capturis.tap:TapCapturis.cli'
